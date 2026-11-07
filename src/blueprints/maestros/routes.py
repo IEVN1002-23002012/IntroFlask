@@ -1,3 +1,4 @@
+
 from flask import Blueprint, jsonify, request
 from database import mysql
 
@@ -13,9 +14,10 @@ def fila_a_diccionario(cursor, fila):
     return dict(zip(columnas, fila))
 
 
-# GET: Listar todos los maestros
+# GET: Listar maestros
 @maestros_bp.route('/', methods=['GET'])
 def listar_maestros():
+
     cursor = None
 
     try:
@@ -23,6 +25,7 @@ def listar_maestros():
         cursor.execute("SELECT * FROM maestros")
 
         datos = cursor.fetchall()
+
         maestros = [
             fila_a_diccionario(cursor, fila)
             for fila in datos
@@ -46,16 +49,18 @@ def listar_maestros():
             cursor.close()
 
 
-# GET: Consultar un maestro por matrícula
-@maestros_bp.route('/<string:matricula>', methods=['GET'])
-def leer_maestro(matricula):
+# GET: Consultar un maestro
+@maestros_bp.route('/<int:idmaestro>', methods=['GET'])
+def leer_maestro(idmaestro):
+
     cursor = None
 
     try:
         cursor = mysql.connection.cursor()
+
         cursor.execute(
-            "SELECT * FROM maestros WHERE matricula = %s",
-            (matricula,)
+            "SELECT * FROM maestros WHERE idmaestro = %s",
+            (idmaestro,)
         )
 
         fila = cursor.fetchone()
@@ -85,9 +90,10 @@ def leer_maestro(matricula):
             cursor.close()
 
 
-# POST: Registrar un maestro
+# POST: Registrar maestro
 @maestros_bp.route('/', methods=['POST'])
 def registrar_maestro():
+
     datos = request.get_json(silent=True)
 
     if not isinstance(datos, dict):
@@ -97,14 +103,17 @@ def registrar_maestro():
         }), 400
 
     campos = [
-        'matricula', 'nombre', 'apaterno',
-        'amaterno', 'correo'
+        'idmaestro',
+        'nombre',
+        'apaterno',
+        'amaterno',
+        'correo'
     ]
 
     if any(
-        campo not in datos
-        or not isinstance(datos[campo], str)
-        or not datos[campo].strip()
+        campo not in datos or
+        datos[campo] is None or
+        str(datos[campo]).strip() == ''
         for campo in campos
     ):
         return jsonify({
@@ -117,24 +126,28 @@ def registrar_maestro():
     try:
         cursor = mysql.connection.cursor()
 
-        # Comprobar si la matrícula ya existe
         cursor.execute(
-            "SELECT matricula FROM maestros WHERE matricula = %s",
-            (datos['matricula'].strip(),)
+            "SELECT idmaestro FROM maestros WHERE idmaestro = %s",
+            (datos['idmaestro'],)
         )
 
         if cursor.fetchone() is not None:
             return jsonify({
-                'mensaje': 'La matrícula ya existe',
+                'mensaje': 'El ID del maestro ya existe',
                 'exito': False
             }), 409
 
-        # Insertar el maestro
         cursor.execute("""
             INSERT INTO maestros
-                (matricula, nombre, apaterno, amaterno, correo)
+            (idmaestro, nombre, apaterno, amaterno, correo)
             VALUES (%s, %s, %s, %s, %s)
-        """, tuple(datos[campo].strip() for campo in campos))
+        """, (
+            datos['idmaestro'],
+            datos['nombre'].strip(),
+            datos['apaterno'].strip(),
+            datos['amaterno'].strip(),
+            datos['correo'].strip()
+        ))
 
         mysql.connection.commit()
 
@@ -157,30 +170,28 @@ def registrar_maestro():
             cursor.close()
 
 
-# PUT: Modificar un maestro
-@maestros_bp.route('/<string:matricula>', methods=['PUT'])
-def modificar_maestro(matricula):
+# PUT: Modificar maestro
+@maestros_bp.route('/<int:idmaestro>', methods=['PUT'])
+def modificar_maestro(idmaestro):
+
     datos = request.get_json(silent=True)
 
-    if not isinstance(datos, dict) or not datos:
+    if not isinstance(datos, dict):
         return jsonify({
-            'mensaje': 'No se recibieron datos para modificar',
+            'mensaje': 'No se recibieron datos',
             'exito': False
         }), 400
 
-    nombre = datos.get('nombre')
-    apaterno = datos.get('apaterno')
-    amaterno = datos.get('amaterno')
-    correo = datos.get('correo')
+    campos = ['nombre', 'apaterno', 'amaterno', 'correo']
 
-    if (
-        not isinstance(nombre, str) or not nombre.strip()
-        or not isinstance(apaterno, str) or not apaterno.strip()
-        or not isinstance(correo, str) or not correo.strip()
-        or not isinstance(amaterno, str)
+    if any(
+        not isinstance(datos.get(campo), str) or
+        not datos[campo].strip()
+        for campo in campos
     ):
         return jsonify({
-            'mensaje': 'Nombre, apellido paterno, apellido materno y correo son obligatorios'
+            'mensaje': 'Todos los campos son obligatorios',
+            'exito': False
         }), 400
 
     cursor = None
@@ -189,40 +200,32 @@ def modificar_maestro(matricula):
         cursor = mysql.connection.cursor()
 
         cursor.execute(
-            "SELECT matricula FROM maestros WHERE matricula = %s",
-            (matricula,)
+            "UPDATE maestros SET nombre=%s, apaterno=%s, amaterno=%s, correo=%s WHERE idmaestro=%s",
+            (
+                datos['nombre'].strip(),
+                datos['apaterno'].strip(),
+                datos['amaterno'].strip(),
+                datos['correo'].strip(),
+                idmaestro
+            )
         )
 
-        maestro = cursor.fetchone()
+        if cursor.rowcount == 0:
+            cursor.execute(
+                "SELECT idmaestro FROM maestros WHERE idmaestro=%s",
+                (idmaestro,)
+            )
 
-        if not maestro:
-            return jsonify({
-                'mensaje': 'No existe un maestro con esa matrícula',
-                'exito': False
-            }), 404
-
-        sql = """
-            UPDATE maestros
-            SET nombre = %s,
-                apaterno = %s,
-                amaterno = %s,
-                correo = %s
-            WHERE matricula = %s
-        """
-
-        cursor.execute(sql, (
-            nombre.strip(),
-            apaterno.strip(),
-            amaterno.strip(),
-            correo.strip(),
-            matricula
-        ))
+            if cursor.fetchone() is None:
+                return jsonify({
+                    'mensaje': 'Maestro no encontrado',
+                    'exito': False
+                }), 404
 
         mysql.connection.commit()
 
         return jsonify({
             'mensaje': 'Maestro modificado correctamente',
-            'matricula': matricula,
             'exito': True
         }), 200
 
@@ -240,37 +243,30 @@ def modificar_maestro(matricula):
             cursor.close()
 
 
-# DELETE: Eliminar un maestro
-@maestros_bp.route('/<string:matricula>', methods=['DELETE'])
-def eliminar_maestro(matricula):
+# DELETE: Eliminar maestro
+@maestros_bp.route('/<int:idmaestro>', methods=['DELETE'])
+def eliminar_maestro(idmaestro):
+
     cursor = None
 
     try:
         cursor = mysql.connection.cursor()
 
         cursor.execute(
-            "SELECT matricula FROM maestros WHERE matricula = %s",
-            (matricula,)
+            "DELETE FROM maestros WHERE idmaestro = %s",
+            (idmaestro,)
         )
 
-        maestro = cursor.fetchone()
-
-        if not maestro:
+        if cursor.rowcount == 0:
             return jsonify({
-                'mensaje': 'No existe un maestro con esa matrícula',
+                'mensaje': 'Maestro no encontrado',
                 'exito': False
             }), 404
-
-        cursor.execute(
-            "DELETE FROM maestros WHERE matricula = %s",
-            (matricula,)
-        )
 
         mysql.connection.commit()
 
         return jsonify({
             'mensaje': 'Maestro eliminado correctamente',
-            'matricula': matricula,
             'exito': True
         }), 200
 

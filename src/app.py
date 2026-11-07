@@ -1,19 +1,18 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from database import mysql  # Importamos el mysql limpio desde database.py
+from database import mysql  
 from config import config
 
 app = Flask(__name__)
 
-# 1. PRIMERO cargamos la configuración de desarrollo
 app.config.from_object(config['development'])
 
-# 2. SEGUNDO inicializamos MySQL usando la app ya configurada (adiós a 'con = MySQL(app)')
+
 mysql.init_app(app)
 
 CORS(app)
 
-# 3. TERCERO importamos y registramos los blueprints (cuando la app y la BD ya están listas)
+
 from blueprints.alumnos.routes import alumnos_bp
 from blueprints.maestros.routes import maestros_bp
 
